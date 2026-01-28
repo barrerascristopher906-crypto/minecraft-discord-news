@@ -2,7 +2,7 @@ name: Minecraft News to Discord
 
 on:
   schedule:
-    - cron: "0 * * * *"   # Cada hora (seguro)
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -22,14 +22,29 @@ jobs:
           curl -L --http1.1 -A "Mozilla/5.0" \
           https://www.minecraft.net/en-us/articles > page.html
 
-      # 2️⃣ Extraer link del artículo más reciente
-      - name: Extraer link del artículo más reciente
+      # 2️⃣ Extraer SOLO artículos recientes (2024+)
+      - name: Extraer artículo reciente
         run: |
-          LINK=$(grep -o 'href="/en-us/article/[^"]*"' page.html | head -n 1 | sed 's/href="//;s/"//')
-          FULL_LINK="https://www.minecraft.net$LINK"
-          echo "$FULL_LINK" > current_link.txt
+          grep -o 'href="/en-us/article/[^"]*"' page.html \
+          | sed 's/href="//;s/"//' \
+          | while read LINK; do
+              FULL="https://www.minecraft.net$LINK"
+              curl -s -L --http1.1 -A "Mozilla/5.0" "$FULL" > tmp.html
+              if grep -qE "2024|2025|2026" tmp.html; then
+                echo "$FULL" > current_link.txt
+                break
+              fi
+            done
 
-      # 3️⃣ Comparar con el último link enviado (ANTI-SPAM)
+      # 3️⃣ Verificar que se encontró algo
+      - name: Verificar artículo válido
+        run: |
+          if [ ! -f current_link.txt ]; then
+            echo "No se encontró artículo reciente"
+            exit 0
+          fi
+
+      # 4️⃣ Anti-spam
       - name: Comparar con último artículo enviado
         run: |
           if [ -f last_link.txt ]; then
@@ -39,24 +54,22 @@ jobs:
             fi
           fi
 
-      # 4️⃣ Guardar nuevo link
+      # 5️⃣ Guardar nuevo link
       - name: Guardar nuevo link
         run: |
           mv current_link.txt last_link.txt
 
-      # 5️⃣ Descargar el artículo nuevo
-      - name: Descargar artículo nuevo
+      # 6️⃣ Descargar artículo
+      - name: Descargar artículo
         run: |
-          LINK=$(cat last_link.txt)
-          curl -L --http1.1 -A "Mozilla/5.0" "$LINK" > article.html
+          curl -L --http1.1 -A "Mozilla/5.0" "$(cat last_link.txt)" > article.html
 
-      # 6️⃣ Extraer título real del artículo
-      - name: Extraer título real
+      # 7️⃣ Extraer título real
+      - name: Extraer título
         run: |
-          TITLE=$(grep -m1 "<h1" article.html | sed 's/<[^>]*>//g')
-          echo "$TITLE" > title.txt
+          grep -m1 "<h1" article.html | sed 's/<[^>]*>//g' > title.txt
 
-      # 7️⃣ Enviar mensaje a Discord
+      # 8️⃣ Enviar a Discord
       - name: Enviar mensaje a Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
@@ -64,11 +77,11 @@ jobs:
           TITLE=$(cat title.txt)
           LINK=$(cat last_link.txt)
           curl -X POST -H "Content-Type: application/json" \
-          -d "{\"content\":\"🟩 **Minecraft Update**\n📰 $TITLE\n🔗 $LINK\"}" \
+          -d "{\"content\":\"🟢 **Nueva noticia de Minecraft**\n📰 $TITLE\n🔗 $LINK\"}" \
           $DISCORD_WEBHOOK
 
-      # 8️⃣ Guardar estado para evitar spam
-      - name: Guardar estado en el repo
+      # 9️⃣ Guardar estado
+      - name: Guardar estado
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
