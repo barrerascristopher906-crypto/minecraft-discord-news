@@ -1,28 +1,54 @@
-name: Minecraft Updates to Discord
+name: Minecraft News to Discord
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "*/30 * * * *"   # Revisa cada 30 minutos
   workflow_dispatch:
 
 jobs:
-  post_update:
+  check-news:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fetch Minecraft RSS
-        run: |
-          curl -s https://www.minecraft.net/en-us/feeds/community-content/rss > feed.xml
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Send update to Discord
+      - name: Descargar página de noticias
+        run: |
+          curl -s https://www.minecraft.net/en-us/articles > page.html
+
+      - name: Obtener título principal
+        run: |
+          TITLE=$(grep -m1 "<h3" page.html | sed 's/<[^>]*>//g' | head -n 1)
+          echo "$TITLE" > current_title.txt
+
+      - name: Comparar con último título
+        run: |
+          if [ -f last_title.txt ]; then
+            if cmp -s current_title.txt last_title.txt; then
+              echo "No hay noticias nuevas"
+              exit 0
+            fi
+          fi
+
+      - name: Guardar nuevo título
+        run: |
+          mv current_title.txt last_title.txt
+
+      - name: Enviar mensaje a Discord
         env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          TITLE="PRUEBA DE BOT FUNCIONANDO"
-          LINK="https://www.minecraft.net"
+          TITLE=$(cat last_title.txt)
+          curl -X POST -H "Content-Type: application/json" \
+          -d "{\"content\":\"🟩 **Nueva noticia de Minecraft**\n📰 $TITLE\n🔗 https://www.minecraft.net/en-us/articles\"}" \
+          $DISCORD_WEBHOOK
 
-          curl -H "Content-Type: application/json" \
-          -X POST \
-          -d "{\"content\":\"🟢 **Minecraft Update**\\n**$TITLE**\\n$LINK\"}" \
-          $WEBHOOK
+      - name: Guardar estado
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add last_title.txt
+          git commit -m "Actualizar última noticia" || echo "Sin cambios"
+          git push
 
