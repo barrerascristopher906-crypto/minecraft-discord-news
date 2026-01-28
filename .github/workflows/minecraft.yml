@@ -1,0 +1,19 @@
+name: Minecraft Updates to Discord
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  check_updates:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get latest Minecraft article
+        run: |
+          curl -s https://www.minecraft.net/en-us/feeds/community-content/rss > feed.xml
+
+      - name: Check feed
+        run: |
+          grep "<item>" feed.xml || exit 0
