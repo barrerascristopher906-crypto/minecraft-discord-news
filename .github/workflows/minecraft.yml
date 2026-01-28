@@ -13,9 +13,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Descargar página de noticias
+      - name: Descargar página de noticias (evita bloqueo Cloudflare)
         run: |
-          curl -s https://www.minecraft.net/en-us/articles > page.html
+          curl -L --http1.1 -A "Mozilla/5.0" \
+          https://www.minecraft.net/en-us/articles > page.html
 
       - name: Obtener título principal
         run: |
