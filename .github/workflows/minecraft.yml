@@ -18,8 +18,8 @@ jobs:
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          TITLE=$(grep -m1 "<title>" feed.xml | sed 's/<[^>]*>//g')
-          LINK=$(grep -m1 "<link>" feed.xml | sed 's/<[^>]*>//g')
+          TITLE="PRUEBA DE BOT FUNCIONANDO"
+          LINK="https://www.minecraft.net"
 
           curl -H "Content-Type: application/json" \
           -X POST \
