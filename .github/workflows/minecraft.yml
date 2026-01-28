@@ -2,8 +2,11 @@ name: Minecraft News to Discord
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # Revisa cada 30 minutos
+    - cron: "*/30 * * * *"
   workflow_dispatch:
+
+permissions:
+  contents: write   # ⬅️ permiso para git push
 
 jobs:
   check-news:
@@ -13,7 +16,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Descargar página de noticias (evita bloqueo Cloudflare)
+      - name: Descargar página de noticias (evita bloqueo)
         run: |
           curl -L --http1.1 -A "Mozilla/5.0" \
           https://www.minecraft.net/en-us/articles > page.html
@@ -45,11 +48,12 @@ jobs:
           -d "{\"content\":\"🟩 **Nueva noticia de Minecraft**\n📰 $TITLE\n🔗 https://www.minecraft.net/en-us/articles\"}" \
           $DISCORD_WEBHOOK
 
-      - name: Guardar estado
+      - name: Guardar estado en el repo
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add last_title.txt
           git commit -m "Actualizar última noticia" || echo "Sin cambios"
           git push
+
 
