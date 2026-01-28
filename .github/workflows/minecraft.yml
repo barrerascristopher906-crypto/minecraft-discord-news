@@ -2,7 +2,7 @@ name: Minecraft News to Discord
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 */2 * * *"   # cada 2 horas (evita spam nocturno)
   workflow_dispatch:
 
 permissions:
@@ -16,75 +16,83 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 1️⃣ Descargar página de artículos
+      # 1️⃣ Descargar lista de artículos
       - name: Descargar página de artículos
         run: |
-          curl -L --http1.1 -A "Mozilla/5.0" \
-          https://www.minecraft.net/en-us/articles > page.html
+          curl -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
 
-      # 2️⃣ Extraer SOLO artículos recientes (2024+)
-      - name: Extraer artículo reciente
+      # 2️⃣ Obtener links únicos
+      - name: Extraer links
         run: |
           grep -o 'href="/en-us/article/[^"]*"' page.html \
           | sed 's/href="//;s/"//' \
-          | while read LINK; do
-              FULL="https://www.minecraft.net$LINK"
-              curl -s -L --http1.1 -A "Mozilla/5.0" "$FULL" > tmp.html
-              if grep -qE "2024|2025|2026" tmp.html; then
-                echo "$FULL" > current_link.txt
-                break
-              fi
-            done
+          | sort -u > links.txt
 
-      # 3️⃣ Verificar que se encontró algo
-      - name: Verificar artículo válido
+      # 3️⃣ Buscar artículo realmente reciente (últimos 7 días)
+      - name: Buscar artículo reciente
         run: |
-          if [ ! -f current_link.txt ]; then
-            echo "No se encontró artículo reciente"
+          TODAY=$(date +%s)
+          FOUND=0
+
+          while read LINK; do
+            URL="https://www.minecraft.net$LINK"
+            curl -s -L -A "Mozilla/5.0" "$URL" > article.html
+
+            DATE_STR=$(grep -m1 'property="article:published_time"' article.html | sed 's/.*content="//;s/".*//')
+            [ -z "$DATE_STR" ] && continue
+
+            ARTICLE_DATE=$(date -d "$DATE_STR" +%s)
+            DIFF=$(( (TODAY - ARTICLE_DATE) / 86400 ))
+
+            if [ "$DIFF" -le 7 ]; then
+              echo "$URL" > current_link.txt
+              echo "$DATE_STR" > current_date.txt
+              FOUND=1
+              break
+            fi
+          done < links.txt
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo "No hay noticias recientes"
             exit 0
           fi
 
-      # 4️⃣ Anti-spam
-      - name: Comparar con último artículo enviado
+      # 4️⃣ Anti-spam real (por link + fecha)
+      - name: Anti-spam
         run: |
-          if [ -f last_link.txt ]; then
-            if cmp -s current_link.txt last_link.txt; then
-              echo "No hay noticia nueva"
+          ID="$(cat current_link.txt)|$(cat current_date.txt)"
+
+          if [ -f last_id.txt ]; then
+            if grep -Fxq "$ID" last_id.txt; then
+              echo "Noticia ya enviada"
               exit 0
             fi
           fi
 
-      # 5️⃣ Guardar nuevo link
-      - name: Guardar nuevo link
-        run: |
-          mv current_link.txt last_link.txt
+          echo "$ID" > last_id.txt
 
-      # 6️⃣ Descargar artículo
-      - name: Descargar artículo
-        run: |
-          curl -L --http1.1 -A "Mozilla/5.0" "$(cat last_link.txt)" > article.html
-
-      # 7️⃣ Extraer título real
+      # 5️⃣ Extraer título
       - name: Extraer título
         run: |
           grep -m1 "<h1" article.html | sed 's/<[^>]*>//g' > title.txt
 
-      # 8️⃣ Enviar a Discord
-      - name: Enviar mensaje a Discord
+      # 6️⃣ Enviar a Discord
+      - name: Enviar a Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           TITLE=$(cat title.txt)
-          LINK=$(cat last_link.txt)
+          LINK=$(cat current_link.txt)
+
           curl -X POST -H "Content-Type: application/json" \
           -d "{\"content\":\"🟢 **Nueva noticia de Minecraft**\n📰 $TITLE\n🔗 $LINK\"}" \
           $DISCORD_WEBHOOK
 
-      # 9️⃣ Guardar estado
+      # 7️⃣ Guardar estado
       - name: Guardar estado
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add last_link.txt
+          git add last_id.txt
           git commit -m "Actualizar última noticia" || echo "Sin cambios"
           git push
