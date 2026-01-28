@@ -6,14 +6,23 @@ on:
   workflow_dispatch:
 
 jobs:
-  check_updates:
+  post_update:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get latest Minecraft article
+      - name: Fetch Minecraft RSS
         run: |
           curl -s https://www.minecraft.net/en-us/feeds/community-content/rss > feed.xml
 
-      - name: Check feed
+      - name: Send update to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          grep "<item>" feed.xml || exit 0
+          TITLE=$(grep -m1 "<title>" feed.xml | sed 's/<[^>]*>//g')
+          LINK=$(grep -m1 "<link>" feed.xml | sed 's/<[^>]*>//g')
+
+          curl -H "Content-Type: application/json" \
+          -X POST \
+          -d "{\"content\":\"🟢 **Minecraft Update**\\n**$TITLE**\\n$LINK\"}" \
+          $WEBHOOK
+
