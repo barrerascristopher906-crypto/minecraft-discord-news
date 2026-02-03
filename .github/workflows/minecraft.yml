@@ -29,6 +29,11 @@ jobs:
           | grep -v Marketplace \
           | sort -u > links.txt
 
+      - name: Inicializar archivos
+        run: |
+          : > current_id.txt
+          : > current_link.txt
+
       - name: Obtener artículo más reciente
         run: |
           if [ ! -s links.txt ]; then
@@ -42,13 +47,15 @@ jobs:
           echo "$LINK" > current_link.txt
           echo "$ID" > current_id.txt
 
-      - name: Verificar si ya fue enviado
+      - name: Verificar si hay artículo válido
         run: |
-          if [ ! -f current_id.txt ]; then
-            echo "No hay artículo para procesar"
+          if [ ! -s current_id.txt ]; then
+            echo "No se encontró artículo válido"
             exit 0
           fi
 
+      - name: Verificar si ya fue enviado
+        run: |
           if [ -f last_id.txt ]; then
             if [ "$(cat last_id.txt)" = "$(cat current_id.txt)" ]; then
               echo "Artículo ya enviado"
