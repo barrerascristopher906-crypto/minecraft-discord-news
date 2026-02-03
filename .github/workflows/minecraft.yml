@@ -31,13 +31,12 @@ jobs:
 
       - name: Obtener artículo más reciente
         run: |
-          LINK=$(head -n 1 links.txt)
-
-          if [ -z "$LINK" ]; then
-            echo "No hay artículos"
+          if [ ! -s links.txt ]; then
+            echo "No hay artículos nuevos"
             exit 0
           fi
 
+          LINK=$(head -n 1 links.txt)
           ID=$(echo "$LINK" | awk -F/ '{print $NF}')
 
           echo "$LINK" > current_link.txt
@@ -45,6 +44,11 @@ jobs:
 
       - name: Verificar si ya fue enviado
         run: |
+          if [ ! -f current_id.txt ]; then
+            echo "No hay artículo para procesar"
+            exit 0
+          fi
+
           if [ -f last_id.txt ]; then
             if [ "$(cat last_id.txt)" = "$(cat current_id.txt)" ]; then
               echo "Artículo ya enviado"
