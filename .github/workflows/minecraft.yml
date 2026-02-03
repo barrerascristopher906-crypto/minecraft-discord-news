@@ -17,9 +17,11 @@ jobs:
         run: |
           curl -s -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
 
-      - name: Extraer artículo más reciente
+      - name: Extraer artículo más reciente válido
         run: |
-          grep -o '/en-us/articles/[^"]*' page.html | head -n 1 > current_link.txt
+          grep -o '/en-us/articles/[^"]*' page.html \
+          | grep -Ei 'snapshot|beta|update|minecraft|marketplace' \
+          | head -n 1 > current_link.txt
 
           if [ ! -s current_link.txt ]; then
             echo "SEND=false" >> $GITHUB_ENV
