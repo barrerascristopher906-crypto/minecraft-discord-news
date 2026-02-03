@@ -1,34 +1,26 @@
-name: Minecraft News to Discord
+name: Minecraft Updates to Discord
 
 on:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "0 * * * *" # cada hora
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  check-news:
+  check_updates:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 1️⃣ Descargar artículos
       - name: Descargar página de artículos
         run: |
-          curl -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
+          curl -s -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
 
-      # 2️⃣ Extraer links únicos
       - name: Extraer links
         run: |
-          grep -o 'href="/en-us/article/[^"]*"' page.html \
-          | sed 's/href="//;s/"//' \
-          | sort -u > links.txt
+          grep -o '/en-us/articles/[^"]*' page.html | sort -u > links.txt
 
-      # 3️⃣ Buscar el artículo MÁS RECIENTE (no el primero)
       - name: Buscar artículo más reciente
         run: |
           BEST_TIME=0
@@ -39,12 +31,20 @@ jobs:
             URL="https://www.minecraft.net$LINK"
             curl -s -L -A "Mozilla/5.0" "$URL" > article.html
 
-            DATE=$(grep -m1 'property="article:published_time"' article.html | sed 's/.*content="//;s/".*//')
-            [ -z "$DATE" ] && continue
+            DATE=$(grep -m1 'article:published_time' article.html | sed -n 's/.*content="\([^"]*\)".*/\1/p')
 
-            TIME=$(date -d "$DATE" +%s)
+            # Si no hay fecha, saltar
+            if [ -z "$DATE" ]; then
+              continue
+            fi
+
+            # Validar fecha
+            if ! TIME=$(date -d "$DATE" +%s 2>/dev/null); then
+              continue
+            fi
+
+            # Solo artículos recientes (7 días)
             AGE=$(( ($(date +%s) - TIME) / 86400 ))
-
             if [ "$AGE" -le 7 ] && [ "$TIME" -gt "$BEST_TIME" ]; then
               BEST_TIME="$TIME"
               BEST_LINK="$URL"
@@ -59,58 +59,33 @@ jobs:
 
           echo "$BEST_LINK" > current_link.txt
           echo "$BEST_DATE" > current_date.txt
+          echo "SEND=true" >> $GITHUB_ENV
 
-      # 4️⃣ Generar ID
       - name: Generar ID
         run: |
-          echo "$(cat current_link.txt)|$(cat current_date.txt)" > current_id.txt
+          sha256sum current_link.txt | cut -d' ' -f1 > current_id.txt
 
-      # 5️⃣ Anti-spam real
       - name: Verificar si ya fue enviado
         run: |
-          if [ -f last_id.txt ] && cmp -s current_id.txt last_id.txt; then
-            echo "SEND=false" >> $GITHUB_ENV
-          else
-            echo "SEND=true" >> $GITHUB_ENV
+          if [ -f last_id.txt ]; then
+            if cmp -s current_id.txt last_id.txt; then
+              echo "SEND=false" >> $GITHUB_ENV
+            fi
           fi
 
-      # 6️⃣ Guardar nuevo ID
-      - name: Guardar ID
+      - name: Enviar a Discord
+        if: env.SEND == 'true'
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d "{\"content\":\"📰 **Nueva noticia de Minecraft**\\n🔗 $(cat current_link.txt)\"}" \
+               ${{ secrets.DISCORD_WEBHOOK }}
+
+      - name: Guardar último artículo enviado
         if: env.SEND == 'true'
         run: |
           mv current_id.txt last_id.txt
-
-      # 7️⃣ Descargar artículo correcto
-      - name: Descargar artículo
-        if: env.SEND == 'true'
-        run: |
-          curl -s -L -A "Mozilla/5.0" "$(cat current_link.txt)" > article.html
-
-      # 8️⃣ Extraer título
-      - name: Extraer título
-        if: env.SEND == 'true'
-        run: |
-          grep -m1 "<h1" article.html | sed 's/<[^>]*>//g' > title.txt
-
-      # 9️⃣ Enviar a Discord
-      - name: Enviar a Discord
-        if: env.SEND == 'true'
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: |
-          TITLE=$(cat title.txt)
-          LINK=$(cat current_link.txt)
-
-          curl -X POST -H "Content-Type: application/json" \
-          -d "{\"content\":\"🟢 **Nueva noticia de Minecraft**\n📰 $TITLE\n🔗 $LINK\"}" \
-          $DISCORD_WEBHOOK
-
-      # 🔟 Guardar estado
-      - name: Guardar estado
-        if: env.SEND == 'true'
-        run: |
           git config user.name "github-actions"
-          git config user.email "actions@github.com"
+          git config user.email "github-actions@github.com"
           git add last_id.txt
-          git commit -m "Actualizar última noticia enviada" || echo "Sin cambios"
+          git commit -m "Actualizar último artículo enviado" || true
           git push
