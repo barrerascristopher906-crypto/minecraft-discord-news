@@ -1,5 +1,8 @@
 name: Minecraft Updates to Discord
 
+permissions:
+  contents: write
+
 on:
   schedule:
     - cron: "0 * * * *" # cada hora
@@ -15,47 +18,60 @@ jobs:
 
       - name: Descargar página de artículos
         run: |
-          curl -s -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
+          curl -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
 
-      - name: Extraer artículo más reciente válido
+      - name: Extraer enlaces válidos
         run: |
-          grep -o '/en-us/articles/[^"]*' page.html \
-          | grep -Ei 'snapshot|beta|update|minecraft|marketplace' \
-          | head -n 1 > current_link.txt
+          grep -o 'https://www.minecraft.net/en-us/articles/[0-9A-Za-z-]*' page.html \
+          | grep -v Feedback-and-Fan-Mail \
+          | grep -v Marketplace \
+          | sort -u > links.txt
 
-          if [ ! -s current_link.txt ]; then
-            echo "SEND=false" >> $GITHUB_ENV
+      - name: Obtener artículo más reciente
+        run: |
+          HEAD_LINK=$(head -n 1 links.txt)
+
+          if [ -z "$HEAD_LINK" ]; then
+            echo "No se encontraron artículos"
             exit 0
           fi
 
-          echo "https://www.minecraft.net$(cat current_link.txt)" > full_link.txt
-          echo "SEND=true" >> $GITHUB_ENV
+          ARTICLE_ID=$(echo "$HEAD_LINK" | awk -F/ '{print $NF}')
 
-      - name: Generar ID
-        run: |
-          sha256sum full_link.txt | cut -d' ' -f1 > current_id.txt
+          echo "$HEAD_LINK" > current_link.txt
+          echo "$ARTICLE_ID" > current_id.txt
 
       - name: Verificar si ya fue enviado
         run: |
           if [ -f last_id.txt ]; then
-            if cmp -s current_id.txt last_id.txt; then
-              echo "SEND=false" >> $GITHUB_ENV
+            LAST_ID=$(cat last_id.txt)
+            CURRENT_ID=$(cat current_id.txt)
+
+            if [ "$LAST_ID" = "$CURRENT_ID" ]; then
+              echo "Artículo ya enviado, no hacer nada"
+              exit 0
             fi
           fi
 
-      - name: Enviar a Discord
-        if: env.SEND == 'true'
+      - name: Enviar mensaje a Discord
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          curl -H "Content-Type: application/json" \
-               -d "{\"content\":\"📰 **Nueva noticia de Minecraft**\\n🔗 $(cat full_link.txt)\"}" \
-               ${{ secrets.DISCORD_WEBHOOK }}
+          LINK=$(cat current_link.txt)
+
+          curl -X POST "$WEBHOOK_URL" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"content\": \"📰 **Nueva noticia de Minecraft**\\n$LINK\"
+          }"
 
       - name: Guardar último artículo enviado
-        if: env.SEND == 'true'
         run: |
           mv current_id.txt last_id.txt
+
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
           git add last_id.txt
-          git commit -m "Actualizar último artículo enviado" || true
+          git commit -m "Actualizar último artículo enviado" || exit 0
           git push
