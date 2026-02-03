@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  check_updates:
+  check-news:
     runs-on: ubuntu-latest
 
     steps:
@@ -17,53 +17,21 @@ jobs:
         run: |
           curl -s -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
 
-      - name: Extraer links
+      - name: Extraer artículo más reciente
         run: |
-          grep -o '/en-us/articles/[^"]*' page.html | sort -u > links.txt
+          grep -o '/en-us/articles/[^"]*' page.html | head -n 1 > current_link.txt
 
-      - name: Buscar artículo más reciente
-        run: |
-          BEST_TIME=0
-          BEST_LINK=""
-          BEST_DATE=""
-
-          while read LINK; do
-            URL="https://www.minecraft.net$LINK"
-            curl -s -L -A "Mozilla/5.0" "$URL" > article.html
-
-            DATE=$(grep -m1 'article:published_time' article.html | sed -n 's/.*content="\([^"]*\)".*/\1/p')
-
-            # Si no hay fecha, saltar
-            if [ -z "$DATE" ]; then
-              continue
-            fi
-
-            # Validar fecha
-            if ! TIME=$(date -d "$DATE" +%s 2>/dev/null); then
-              continue
-            fi
-
-            # Solo artículos recientes (7 días)
-            AGE=$(( ($(date +%s) - TIME) / 86400 ))
-            if [ "$AGE" -le 7 ] && [ "$TIME" -gt "$BEST_TIME" ]; then
-              BEST_TIME="$TIME"
-              BEST_LINK="$URL"
-              BEST_DATE="$DATE"
-            fi
-          done < links.txt
-
-          if [ -z "$BEST_LINK" ]; then
+          if [ ! -s current_link.txt ]; then
             echo "SEND=false" >> $GITHUB_ENV
             exit 0
           fi
 
-          echo "$BEST_LINK" > current_link.txt
-          echo "$BEST_DATE" > current_date.txt
+          echo "https://www.minecraft.net$(cat current_link.txt)" > full_link.txt
           echo "SEND=true" >> $GITHUB_ENV
 
       - name: Generar ID
         run: |
-          sha256sum current_link.txt | cut -d' ' -f1 > current_id.txt
+          sha256sum full_link.txt | cut -d' ' -f1 > current_id.txt
 
       - name: Verificar si ya fue enviado
         run: |
@@ -77,7 +45,7 @@ jobs:
         if: env.SEND == 'true'
         run: |
           curl -H "Content-Type: application/json" \
-               -d "{\"content\":\"📰 **Nueva noticia de Minecraft**\\n🔗 $(cat current_link.txt)\"}" \
+               -d "{\"content\":\"📰 **Nueva noticia de Minecraft**\\n🔗 $(cat full_link.txt)\"}" \
                ${{ secrets.DISCORD_WEBHOOK }}
 
       - name: Guardar último artículo enviado
