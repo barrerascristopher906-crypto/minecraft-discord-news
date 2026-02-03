@@ -21,18 +21,19 @@ jobs:
         run: |
           curl -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
 
-      # 2️⃣ Extraer links
+      # 2️⃣ Extraer links únicos
       - name: Extraer links
         run: |
           grep -o 'href="/en-us/article/[^"]*"' page.html \
           | sed 's/href="//;s/"//' \
           | sort -u > links.txt
 
-      # 3️⃣ Buscar artículo reciente
-      - name: Buscar artículo reciente
+      # 3️⃣ Buscar el artículo MÁS RECIENTE (no el primero)
+      - name: Buscar artículo más reciente
         run: |
-          TODAY=$(date +%s)
-          FOUND=0
+          BEST_TIME=0
+          BEST_LINK=""
+          BEST_DATE=""
 
           while read LINK; do
             URL="https://www.minecraft.net$LINK"
@@ -41,28 +42,30 @@ jobs:
             DATE=$(grep -m1 'property="article:published_time"' article.html | sed 's/.*content="//;s/".*//')
             [ -z "$DATE" ] && continue
 
-            ARTICLE_TIME=$(date -d "$DATE" +%s)
-            DIFF=$(( (TODAY - ARTICLE_TIME) / 86400 ))
+            TIME=$(date -d "$DATE" +%s)
+            AGE=$(( ($(date +%s) - TIME) / 86400 ))
 
-            if [ "$DIFF" -le 7 ]; then
-              echo "$URL" > current_link.txt
-              echo "$DATE" > current_date.txt
-              FOUND=1
-              break
+            if [ "$AGE" -le 7 ] && [ "$TIME" -gt "$BEST_TIME" ]; then
+              BEST_TIME="$TIME"
+              BEST_LINK="$URL"
+              BEST_DATE="$DATE"
             fi
           done < links.txt
 
-          if [ "$FOUND" -eq 0 ]; then
+          if [ -z "$BEST_LINK" ]; then
             echo "SEND=false" >> $GITHUB_ENV
             exit 0
           fi
+
+          echo "$BEST_LINK" > current_link.txt
+          echo "$BEST_DATE" > current_date.txt
 
       # 4️⃣ Generar ID
       - name: Generar ID
         run: |
           echo "$(cat current_link.txt)|$(cat current_date.txt)" > current_id.txt
 
-      # 5️⃣ Anti-spam REAL
+      # 5️⃣ Anti-spam real
       - name: Verificar si ya fue enviado
         run: |
           if [ -f last_id.txt ] && cmp -s current_id.txt last_id.txt; then
@@ -77,13 +80,19 @@ jobs:
         run: |
           mv current_id.txt last_id.txt
 
-      # 7️⃣ Extraer título
+      # 7️⃣ Descargar artículo correcto
+      - name: Descargar artículo
+        if: env.SEND == 'true'
+        run: |
+          curl -s -L -A "Mozilla/5.0" "$(cat current_link.txt)" > article.html
+
+      # 8️⃣ Extraer título
       - name: Extraer título
         if: env.SEND == 'true'
         run: |
           grep -m1 "<h1" article.html | sed 's/<[^>]*>//g' > title.txt
 
-      # 8️⃣ Enviar a Discord
+      # 9️⃣ Enviar a Discord
       - name: Enviar a Discord
         if: env.SEND == 'true'
         env:
@@ -96,7 +105,7 @@ jobs:
           -d "{\"content\":\"🟢 **Nueva noticia de Minecraft**\n📰 $TITLE\n🔗 $LINK\"}" \
           $DISCORD_WEBHOOK
 
-      # 9️⃣ Commit estado
+      # 🔟 Guardar estado
       - name: Guardar estado
         if: env.SEND == 'true'
         run: |
