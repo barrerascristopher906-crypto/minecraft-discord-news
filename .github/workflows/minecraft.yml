@@ -22,15 +22,34 @@ jobs:
         run: |
           curl -s https://www.minecraft.net/en-us/feeds/news.xml > feed.xml
 
-      - name: Extraer último item
+      - name: Extraer primer item real
         run: |
-          TITLE=$(grep -m1 "<title>" feed.xml | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
-          LINK=$(grep -m1 "<link>" feed.xml | sed 's/.*<link>\(.*\)<\/link>.*/\1/')
-          ID=$(echo "$LINK" | md5sum | awk '{print $1}')
+          TITLE=$(awk '
+            /<item>/,/<\/item>/ {
+              if ($0 ~ /<title>/) {
+                gsub(/.*<title>|<\/title>.*/, "", $0)
+                print $0
+                exit
+              }
+            }' feed.xml)
+
+          LINK=$(awk '
+            /<item>/,/<\/item>/ {
+              if ($0 ~ /<link>/) {
+                gsub(/.*<link>|<\/link>.*/, "", $0)
+                print $0
+                exit
+              }
+            }' feed.xml)
+
+          if [ -z "$TITLE" ] || [ -z "$LINK" ]; then
+            echo "No se pudo extraer noticia válida"
+            exit 0
+          fi
 
           echo "$TITLE" > current_title.txt
           echo "$LINK" > current_link.txt
-          echo "$ID" > current_id.txt
+          echo "$LINK" | md5sum | awk "{print \$1}" > current_id.txt
 
       - name: Verificar si ya fue enviado
         run: |
@@ -41,12 +60,17 @@ jobs:
             fi
           fi
 
-      - name: Enviar a Discord
+      - name: Enviar notificación a Discord
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           TITLE=$(cat current_title.txt)
           LINK=$(cat current_link.txt)
+
+          if [ -z "$LINK" ]; then
+            echo "Link vacío, no se envía"
+            exit 0
+          fi
 
           curl -s -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
@@ -54,7 +78,7 @@ jobs:
               \"content\": \"📰 **$TITLE**\\n$LINK\"
             }"
 
-      - name: Guardar última noticia
+      - name: Guardar última noticia enviada
         run: |
           mv current_id.txt last_id.txt
 
