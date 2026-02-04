@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 * * * *"   # cada hora
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
 
       - name: Descargar RSS oficial de Minecraft
         run: |
-          curl -L -s https://www.minecraft.net/en-us/feeds/news.xml > feed.xml
+          curl --http1.1 -L -s https://www.minecraft.net/en-us/feeds/news.xml > feed.xml
 
       - name: Extraer última noticia válida
         run: |
@@ -76,4 +76,3 @@ jobs:
           git add last_id.txt
           git commit -m "Actualizar última noticia enviada" || exit 0
           git push
-
