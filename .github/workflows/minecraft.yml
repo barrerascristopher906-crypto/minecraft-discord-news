@@ -1,98 +1,60 @@
-name: Minecraft News to Discord
+name: Minecraft RSS to Discord
 
 permissions:
   contents: write
 
 on:
   schedule:
-    - cron: "0 * * * *"   # cada hora
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
-  check-news:
+  rss:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: true
 
-      - name: Descargar página de artículos
+      - name: Descargar RSS oficial
         run: |
-          curl -L -A "Mozilla/5.0" https://www.minecraft.net/en-us/articles > page.html
+          curl -s https://www.minecraft.net/en-us/feeds/news.xml > feed.xml
 
-      - name: Extraer enlaces válidos
+      - name: Extraer último item
         run: |
-          grep -o 'href="/en-us/articles/[0-9]\+-[^"]*"' page.html \
-          | sed 's/href="//;s/"//' \
-          | grep -vi 'feedback' \
-          | grep -vi 'fan-mail' \
-          | grep -vi 'community' \
-          | grep -vi 'marketplace' \
-          | awk '{print "https://www.minecraft.net"$0}' \
-          | sort -u > links.txt
+          TITLE=$(grep -m1 "<title>" feed.xml | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
+          LINK=$(grep -m1 "<link>" feed.xml | sed 's/.*<link>\(.*\)<\/link>.*/\1/')
+          ID=$(echo "$LINK" | md5sum | awk '{print $1}')
 
-      - name: Inicializar archivos temporales
+          echo "$TITLE" > current_title.txt
+          echo "$LINK" > current_link.txt
+          echo "$ID" > current_id.txt
+
+      - name: Verificar si ya fue enviado
         run: |
-          : > current_link.txt
-          : > current_id.txt
-
-      - name: Obtener primer artículo NUEVO
-        run: |
-          if [ ! -s links.txt ]; then
-            echo "No hay enlaces"
-            exit 0
-          fi
-
-          FOUND=0
-          while read LINK; do
-            ID=$(echo "$LINK" | grep -o '[0-9]\+' | head -n 1)
-
-            if [ -z "$ID" ]; then
-              continue
+          if [ -f last_id.txt ]; then
+            if [ "$(cat last_id.txt)" = "$(cat current_id.txt)" ]; then
+              echo "Noticia ya enviada"
+              exit 0
             fi
-
-            if [ -f last_id.txt ] && grep -q "^$ID$" last_id.txt; then
-              continue
-            fi
-
-            echo "$LINK" > current_link.txt
-            echo "$ID" > current_id.txt
-            FOUND=1
-            break
-          done < links.txt
-
-          if [ "$FOUND" = "0" ]; then
-            echo "No hay artículos nuevos"
-            exit 0
           fi
 
-      - name: Validar artículo
-        run: |
-          if [ ! -s current_link.txt ] || [ ! -s current_id.txt ]; then
-            echo "Artículo inválido"
-            exit 0
-          fi
-
-      - name: Enviar notificación a Discord
+      - name: Enviar a Discord
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          TITLE=$(cat current_title.txt)
           LINK=$(cat current_link.txt)
-
-          if [ -z "$LINK" ]; then
-            echo "Link vacío, no se envía"
-            exit 0
-          fi
 
           curl -s -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d "{
-              \"content\": \"📰 **Nueva noticia de Minecraft**\\n$LINK\"
+              \"content\": \"📰 **$TITLE**\\n$LINK\"
             }"
 
-      - name: Guardar último artículo enviado
+      - name: Guardar última noticia
         run: |
           mv current_id.txt last_id.txt
 
@@ -100,5 +62,5 @@ jobs:
           git config user.email "github-actions@github.com"
 
           git add last_id.txt
-          git commit -m "Actualizar último artículo enviado" || exit 0
+          git commit -m "Actualizar última noticia" || exit 0
           git push
