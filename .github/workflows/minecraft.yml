@@ -11,54 +11,38 @@ on:
 jobs:
   minecraft:
     runs-on: ubuntu-latest
+    timeout-minutes: 3   # evita que se quede colgado
 
     steps:
-      - name: Checkout repositorio
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          persist-credentials: true
 
-      - name: Descargar RSS oficial de Minecraft
+      - name: Descargar RSS espejo (estable)
         run: |
-          wget -q -O feed.xml https://www.minecraft.net/en-us/feeds/news.xml
+          wget -q -O feed.xml https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/main/rss/news.xml
 
-      - name: Extraer última noticia válida
+      - name: Extraer última noticia
         run: |
-          TITLE=$(awk '
-            /<item>/,/<\/item>/ {
-              if ($0 ~ /<title>/) {
-                gsub(/.*<title>|<\/title>.*/, "", $0)
-                print $0
-                exit
-              }
-            }' feed.xml)
-
-          LINK=$(awk '
-            /<item>/,/<\/item>/ {
-              if ($0 ~ /<link>/) {
-                gsub(/.*<link>|<\/link>.*/, "", $0)
-                print $0
-                exit
-              }
-            }' feed.xml)
+          TITLE=$(awk -F'[<>]' '/<item>/{f=1} f && /<title>/{print $3; exit}' feed.xml)
+          LINK=$(awk -F'[<>]' '/<item>/{f=1} f && /<link>/{print $3; exit}' feed.xml)
 
           if [ -z "$TITLE" ] || [ -z "$LINK" ]; then
-            echo "No se pudo extraer noticia del RSS"
+            echo "No se encontró noticia"
             exit 0
           fi
 
           echo "$TITLE" > current_title.txt
           echo "$LINK" > current_link.txt
-          echo "$LINK" | md5sum | awk '{print $1}' > current_id.txt
+          echo "$LINK" | sha1sum | awk '{print $1}' > current_id.txt
 
-      - name: Verificar si la noticia ya fue enviada
+      - name: Verificar duplicado
         run: |
-          if [ -f last_id.txt ] && [ "$(cat last_id.txt)" = "$(cat current_id.txt)" ]; then
-            echo "Noticia ya enviada previamente"
+          if [ -f last_id.txt ] && diff last_id.txt current_id.txt >/dev/null; then
+            echo "Noticia ya enviada"
             exit 0
           fi
 
-      - name: Enviar notificación a Discord
+      - name: Enviar a Discord
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
@@ -68,11 +52,11 @@ jobs:
               \"content\": \"📰 **$(cat current_title.txt)**\n$(cat current_link.txt)\"
             }"
 
-      - name: Guardar ID de la última noticia enviada
+      - name: Guardar ID
         run: |
           mv current_id.txt last_id.txt
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.name github-actions
+          git config user.email github-actions@github.com
           git add last_id.txt
-          git commit -m "Actualizar última noticia enviada" || exit 0
+          git commit -m \"Actualizar última noticia\" || exit 0
           git push
