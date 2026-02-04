@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: true
 
-      - name: Descargar RSS oficial de Minecraft (wget)
+      - name: Descargar RSS oficial de Minecraft
         run: |
           wget -q -O feed.xml https://www.minecraft.net/en-us/feeds/news.xml
 
